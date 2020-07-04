@@ -2,6 +2,7 @@ import pandas as pd
 import os
 import numpy as np
 import datetime
+import matplotlib.pyplot as plt
 
 
 def main():
@@ -29,6 +30,7 @@ def main():
     create_folder_structure(location_data)
     combined_data = aggregate_per_day(disease_data, location_data, pop_data)
     combined_weekly_data = aggregate_per_week(combined_data)
+    dataset_per_location(combined_data, combined_weekly_data, location_data)
 
 
 
@@ -47,18 +49,16 @@ def aggregate_per_day(disease_data, location_data, pop_data):
     fylke_disease_data = kommune_disease_data.copy()[["date", "county_code", "county_name", "num_population", "num_sick"]]
     fylke_disease_data = kommune_disease_data.groupby(["date", "location_code"]).first().groupby(["date", "county_code", "county_name"]).sum().reset_index()
     fylke_disease_data.rename(inplace=True, columns={"county_code": "location_code", "county_name": "location_name"})
-    #fylke_disease_data = fylke_disease_data.groupby(["date", "location_code", "location_name"])["num_sick"].sum().reset_index()
-    #fylke_disease_data = pd.merge(fylke_disease_data, pop_per_fylke, how="right", left_on=["date","location_code"], right_on=["date","county_code"])
 
     kommune_disease_data.drop(labels=["county_code", "county_name"], axis=1, inplace=True)
 
     country_disease_data = fylke_disease_data.copy()
     country_disease_data["location_code"] = "norge"
     country_disease_data["location_name"] = "Norge"
-    country_disease_data = country_disease_data.groupby(["date", "location_code"]).sum().reset_index()
+    country_disease_data = country_disease_data.groupby(["date", "location_code", "location_name"]).sum().reset_index()
 
     combined_data = pd.concat([kommune_disease_data, fylke_disease_data, country_disease_data], axis=0)
-    combined_data.to_excel("../output/full_day.xlsx", index=False)
+#    combined_data.to_excel("../output/full_day.xlsx", index=False)
     return combined_data
 
 def aggregate_per_week(combined_data):
@@ -68,7 +68,8 @@ def aggregate_per_week(combined_data):
         num_population=pd.NamedAgg("num_population", "first"),
         num_sick=pd.NamedAgg("num_sick", "sum")
     ).reset_index()
-    combined_weekly_data.to_excel("../output/full_week.xlsx", index=False)
+    combined_weekly_data["date"].dt.strftime("%Y-%W")
+#    combined_weekly_data.to_excel("../output/full_week.xlsx", index=False)
     return combined_weekly_data
 
 
@@ -76,7 +77,47 @@ def create_folder_structure(location_data):
     os.makedirs("../output/Norge", exist_ok=True)
     for idx, row in location_data.iterrows():
         os.makedirs(f"../output/{row['county_name']}/{row['municip_name']}", exist_ok=True)
-        os.makedirs(f"../output/{row['county_name']}/_output", exist_ok=True)
+        os.makedirs(f"../output/{row['county_name']}/_county", exist_ok=True)
+
+
+def dataset_per_location(combined_data, combined_weekly_data, location_data):
+    day_data = combined_data.loc[combined_data["location_code"] == "norge"]
+    day_data.to_excel("../output/Norge/full_day.xlsx", index=False)
+    combined_weekly_data.loc[combined_weekly_data["location_code"] == "norge"].to_excel("../output/Norge/full_week.xlsx", index=False)
+
+    plt.plot(day_data["date"], day_data["num_sick"])
+    plt.xlabel(f"Disease X in Norge (pop. {day_data['num_population'].mean():,})".replace(',', ' '))
+    plt.ylabel("Number of sick people")
+    plt.savefig(f"../output/Norge/graph.png")
+    plt.clf()
+
+    county_codes = location_data["county_code"].unique()
+    county_names = location_data["county_name"].unique()
+    for fylke_code, fylke_name in zip(county_codes, county_names):
+        day_data = combined_data.loc[combined_data["location_code"] == fylke_code]
+        day_data.to_excel(f"../output/{fylke_name}/_county/full_day.xlsx", index=False)
+        combined_weekly_data.loc[combined_weekly_data["location_code"] == fylke_code].to_excel(f"../output/{fylke_name}/_county/full_week.xlsx", index=False)
+
+        plt.plot(day_data["date"], day_data["num_sick"])
+        plt.xlabel(f"Disease X in {fylke_name} (pop. {day_data['num_population'].mean():,})".replace(',', ' '))
+        plt.ylabel("Number of sick people")
+        plt.savefig(f"../output/{fylke_name}/_county/graph.png")
+        plt.clf()
+
+        municip_code = location_data.loc[location_data["county_code"] == fylke_code]["municip_code"]
+        municip_name = location_data.loc[location_data["county_code"] == fylke_code]["municip_name"]
+
+        for kommune_code, kommune_name in zip(municip_code, municip_name):
+            day_data = combined_data.loc[combined_data["location_code"] == kommune_code]
+            day_data.to_excel(f"../output/{fylke_name}/{kommune_name}/full_day.xlsx", index=False)
+            combined_weekly_data.loc[combined_weekly_data["location_code"] == kommune_code].to_excel(
+                f"../output/{fylke_name}/{kommune_name}/full_week.xlsx", index=False)
+
+            plt.plot(day_data["date"], day_data["num_sick"])
+            plt.xlabel(f"Disease X in {kommune_name} (pop. {day_data['num_population'].mean():,})".replace(',', ' '))
+            plt.ylabel("Number of sick people")
+            plt.savefig(f"../output/{fylke_name}/{kommune_name}/graph.png")
+            plt.clf()
 
 
 main()
